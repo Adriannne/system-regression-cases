@@ -1,0 +1,9 @@
+*** Variables ***
+${host}           10.69.140.223
+${port}           2242
+${username}       roaddb
+${password}       Test1234
+${testdata}       /data/testdata/mini_4    # contain gpsskeleton, roadskeleton, and rtv
+${milford testdata}    /data/testdata/milford_new/    # contain gpsskeleton, roadskeleton, and rtv
+${gE2eResult}     /opt/ygomi/roadDB/file_storage/serialized_process/backup    # total backup folder of e2e result
+${gBackupPath}    /data/rf/output/autotestbackup    # total backup path of autotest

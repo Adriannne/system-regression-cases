@@ -1,0 +1,3 @@
+*** Settings ***
+Resource          System_utilities.txt
+Resource          System_variable.txt

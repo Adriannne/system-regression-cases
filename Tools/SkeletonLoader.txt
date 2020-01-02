@@ -1,0 +1,175 @@
+*** Settings ***
+Resource          ../RFresource/System_lib_res_var.txt
+
+*** Variables ***
+${sExe}           skeletonLoader
+${sExefile}       /opt/ygomi/roadDB/bin/skeletonLoader
+${sBackupPath}    ${gBackupPath}/${sExe}
+
+*** Test Cases ***
+RDB-38838 No param
+    [Tags]    abnormal test
+    [Setup]    login server
+    ${stdout}=    execute command and check rc    ${sExefile}    1
+    Should Contain    ${stdout}    Usage
+    Should Not Contain    ${stdout}    core dumped
+
+RDB-38911 print help
+    [Tags]    normal test
+    [Setup]    login server
+    ${stdout}=    execute command and check rc    ${sExefile} --help
+    Should Contain    ${stdout}    Usage
+
+RDB-38912 print version
+    [Tags]    normal test
+    [Setup]    login server
+    ${stdout}=    execute command and check rc    ${sExefile} --version
+    Should Contain    ${stdout}    Version
+
+RDB-38836 import normaly
+    [Tags]    normal test
+    [Setup]    login server
+    check and clean database
+    copy gpsskeleton
+    ${stdout}    execute command and check rc    ${sExefile} --idb /opt/ygomi/roadDB/gpsskeleton --manual
+    Should Contain    ${stdout}    end run skeletonLoader
+
+RDB-38908 rename gpsskeleton
+    [Tags]    normal test
+    [Setup]    login server
+    check and clean database
+    #rename gpsskeleton
+    execute command and check rc    tree ${testdata}
+    execute command and check rc    cp -r ${testdata}/gpsskeleton/ ${testdata}/skeleton2
+    execute command and check rc    tree ${testdata}/skeleton2
+    # run skeletonloader
+    ${stdout}    execute command and check rc    ${sExefile} --idb ${testdata}/skeleton2 --manual
+    Should Contain    ${stdout}    end run skeletonLoader
+    extract foregrounddb kml    RDB-38908-kml
+    execute command and check rc    rm -rf ${testdata}/skeleton2
+
+RDB-38908 other data in gpsskeleton
+    [Tags]    normal test
+    [Setup]    login server
+    copy gpsskeleton
+    # touch file in gpsskeleton
+    execute command and check rc    cd /opt/ygomi/roadDB/gpsskeleton/ && touch abc.txt
+    ${stdout}    execute command and check rc    tree /opt/ygomi/roadDB/gpsskeleton
+    Should Contain    ${stdout}    abc.txt
+    #run skeletonloader
+    ${stdout}    execute command and check rc    ${sExefile} --idb /opt/ygomi/roadDB/gpsskeleton
+    Should Contain    ${stdout}    end import skeleton
+    extract foregrounddb kml    RDB-38908-kml2
+    check and clean database
+
+RDB-38909 import section_db dir
+    [Tags]    abnormal test
+    [Setup]    login server
+    #rename gpsskeleton
+    execute command and check rc    tree ${testdata}
+    # run skeletonloader
+    ${stdout}    ${rc}    Execute Command    ${sExefile} --idb ${testdata}/gpsskeleton/section_db/    return_stdout=True    return_rc=True
+    log    ${rc}
+    log    ${stdout}
+    Should Not Be Equal As Integers    ${rc}    0
+    Should Contain    ${stdout}    failed
+    Should Not Contain    ${stdout}    core dumped
+
+RDB-38907 import bin file
+    [Tags]    abnormal test
+    [Setup]    login server
+    #rename gpsskeleton
+    ${stdout}    execute command and check rc    ls ${testdata}/gpsskeleton/section_db/
+    ${bin file}    Fetch From Left    ${stdout}    \n
+    ${bin file path}    Set Variable    ${testdata}/gpsskeleton/section_db/${bin file}
+    # run skeletonloader
+    ${stdout}    ${rc}    Execute Command    ${sExefile} --idb ${bin file path}    return_stdout=True    return_rc=True
+    log    ${rc}
+    log    ${stdout}
+    Should Not Be Equal As Integers    ${rc}    0
+    Should Contain    ${stdout}    failed
+    Should Not Contain    ${stdout}    core dumped
+
+RDB-38910 run with all params
+    [Tags]    normal test
+    [Setup]    login server
+    copy gpsskeleton
+    ${stdout}    execute command and check rc    ${sExefile} --idb /opt/ygomi/roadDB/gpsskeleton --domain http://127.0.0.1:8080/ --ol ./skeletonlog0 --odiv divisionfile0.txt --level 2
+    Should Contain    ${stdout}    end import skeleton
+    ${stdout}    execute command and check rc    tree
+    Should Contain    ${stdout}    skeletonlog0
+    Should Contain    ${stdout}    divisionfile0
+    extract foregrounddb kml    RDB-38910-kml
+    check and clean database
+
+RDB-38926 input incorrectly domain
+    [Tags]    abnormal test
+    [Setup]    login server
+    copy gpsskeleton
+    ${stdout}    ${rc}    Execute Command    ${sExefile} --idb /opt/ygomi/roadDB/gpsskeleton --domain http://127.0.0.1:28080/    return_stdout=True    return_rc=True
+    log    ${rc}
+    log    ${stdout}
+    Should Not Be Equal As Integers    ${rc}    0
+    Should Contain    ${stdout}    failed
+    Should Not Contain    ${stdout}    core dumped
+
+RDB-38844 import two area skeleton
+    [Setup]    login server
+    # import skeleton of mini data
+    copy gpsskeleton
+    ${stdout}    execute command and check rc    ${sExefile}r --idb /opt/ygomi/roadDB/gpsskeleton
+    Should Contain    ${stdout}    end import skeleton
+    # check division
+    @{divisions1}    ${division length1}    get db data    mysql -udba -pmysql -e "select * from foregrounddb.divisions;"
+    Should Be True    ${division length1}>0
+    # import skeleton of milford data
+    ${stdout}    execute command and check rc    ${sExefile} --idb /data/testdata/milford_new/gpsskeleton/
+    Should Contain    ${stdout}    end import skeleton
+    # check division2
+    @{divisions2}    ${division length2}    get db data    mysql -udba -pmysql -e "select * from foregrounddb.divisions;"
+    # compare two division length
+    Should Be True    ${division length2}>${division length1}
+    extract foregrounddb kml    RDB-38844-kml
+    #clean database
+    execute command and check rc    /opt/ygomi/roadDB/tool/db/clear_db_data/allDB_clear.sh
+    execute command and check rc    sudo service road_server restart
+
+RDB-38841 run e2e after import gpsskeleton
+    #copy data
+    copy gpsskeleton
+    execute command and check rc    rm /opt/ygomi/roadDB/roadskeleton/*
+    execute command and check rc    cp ${testdata}/roadskeleton/roadskeleton.json /opt/ygomi/roadDB/roadskeleton
+    execute command and check rc    ls /opt/ygomi/roadDB/roadskeleton
+    execute command and check rc    rm -rf /opt/ygomi/roadDB/file_storage/rtv/*
+    execute command and check rc    cp -r ${testdata}/one /opt/ygomi/roadDB/file_storage/rtv/
+    execute command and check rc    tree /opt/ygomi/roadDB/file_storage/rtv/
+    #import gpsskeleton
+    ${stdout}    execute command and check rc    ${sExefile} --idb /opt/ygomi/roadDB/gpsskeleton
+    Should Contain    ${stdout}    end import skeleton
+    open e2e page on google browser    http://10.69.140.99:8042/debug/dataprocessingtesttool.html
+
+test case
+    open e2e page on google browser    http://10.69.140.99:8042/debug/dataprocessingtesttool.html
+
+RDB-38843 import the same area after e2e
+    [Setup]    login server
+    #run e2e with 38841
+    # check division
+    @{divisions1}    ${division length1}    get db data    mysql -udba -pmysql -e "select * from foregrounddb.divisions;"
+    Should Be True    ${division length1}>0
+    # check nodes
+    @{nodes1}    ${node length1}    get db data    mysql -udba -pmysql -e "select * from foregrounddb.nodes;"
+    Should Be True    ${node length1}>0
+    # import the same gpsskeleton
+    ${stdout}    execute command and check rc    ${sExefile} --idb /opt/ygomi/roadDB/gpsskeleton
+    Should Contain    ${stdout}    end import skeleton
+    # check division again
+    @{divisions2}    ${division length2}    get db data    mysql -udba -pmysql -e "select * from foregrounddb.divisions;"
+    Should Be True    ${division length1}==${division length2}
+    Should Be True    @{divisions1}==@{divisions2}
+    # check nodes again
+    @{nodes2}    ${node length2}    get db data    mysql -udba -pmysql -e "select * from foregrounddb.nodes;"
+    Should Be True    ${node length1}==${node length2}
+    Should Be True    @{nodes1}==@{nodes2}
+
+*** Keywords ***

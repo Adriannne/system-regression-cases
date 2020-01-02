@@ -1,0 +1,658 @@
+*** Settings ***
+Library           OperatingSystem
+Library           String
+Resource          System_variable.txt
+Library           Selenium2Library
+Library           Collections
+Library           SSHLibrary
+Library           JSONLibrary
+
+*** Keywords ***
+login server
+    #login server
+    Close All Connections
+    Open Connection    ${host}    \    ${port}    1 hour
+    login    ${username}    ${password}
+
+prepare_backup_path
+    [Arguments]    ${backup}
+    #prepare env
+    Comment    ${rc}    Run And Return Rc    sudo mkdir -p ${backup}
+    Comment    Should Be Equal As Integers    ${rc}    0
+    Comment    ${rc}    Run And Return Rc    sudo chown user:user ${backup}
+    Comment    Should Be Equal As Integers    ${rc}    0
+    Comment    execute command and check rc    mkdir -p ${backup}
+    Comment    execute command and check rc    rm -rf ${backup}/*
+    Comment    #empty /home/roaddb
+    Comment    ${pwd}    execute command and check rc    pwd
+    Comment    execute command and check rc    rm -rf ${pwd}/*
+    #run on docker
+    execute command and check rc    mkdir -p ${backup}
+    execute command and check rc    rm -rf ${backup}/*
+
+execute command and check rc
+    [Arguments]    ${command}    ${expected_rc}=0
+    ${stdout}    ${rc}    Execute Command    ${command}    return_stdout=True    return_rc=True
+    log    ${stdout}
+    run keyword if    ${expected_rc}==0    Should Be Equal As Integers    ${rc}    ${expected_rc}
+    ...    ELSE    BuiltIn.Should Not Be Equal As Integers    ${rc}    0
+    [Return]    ${stdout}
+
+get db data
+    [Arguments]    ${db command}
+    ${stdout}    execute command and check rc    ${db command}
+    @{lines}    Split To Lines    ${stdout}    1
+    Log Many    @{lines}
+    Comment    ${line length}    Evaluate    len(@{lines})
+    [Return]    @{lines}
+
+copy gpsskeleton
+    execute command and check rc    tree ${testdata}
+    execute command and check rc    rm -rf /opt/ygomi/roadDB/gpsskeleton/*
+    execute command and check rc    cp -r ${testdata}/gpsskeleton/* /opt/ygomi/roadDB/gpsskeleton/
+    execute command and check rc    tree /opt/ygomi/roadDB/gpsskeleton
+
+check and clean database
+    # check division
+    @{divisions}    ${division length}    get db data    mysql -udba -pmysql -e "select * from backenddb.divisions;"
+    Should Be True    ${division length}>0
+    # check nodes
+    @{nodes}    ${node length}    get db data    mysql -udba -pmysql -e "select * from backenddb.nodes;"
+    Should Be True    ${node length}>0
+    #clean database
+    execute command and check rc    /opt/ygomi/roadDB/tool/db/clear_db_data/allDB_clear.sh
+    execute command and check rc    sudo service road_server restart
+
+extract foregrounddb kml
+    [Arguments]    ${kml name}
+    ${kml path}    Set Variable    /opt/ygomi/roadDB/tool/${kml name}
+    Execute Command    mkdir ${kml path}
+    execute command and check rc    /opt/ygomi/roadDB/tool/DB2KML BEDA http://127.0.0.1:8080/ -o ${kml path}
+    ${stdout}    execute command and check rc    ls ${kml path} |wc -l
+    Should Be True    ${stdout}>1
+
+open e2e page on google browser
+    [Arguments]    ${url}
+    Open Browser    ${url}    Chrome    alias=e2e
+    Sleep    5s
+    Input Text    id=userName    road
+    Input Password    id=password    r0ad1234
+    Click Button    css=.ant-btn
+    sleep    5s
+    Comment    Click Button    linkText=Start
+    Comment    Click Button    css=.ant-btn-danger
+
+get_system_module_cmd
+    [Arguments]    ${exe}
+    #get cmd log
+    ${log}    grep_log_string    ${exe}    module command
+    @{log1}    Split String    ${log}    module command:
+    ${cmdlog}    Fetch From Left    @{log1}[1]    (
+    log    ${cmdlog}
+    [Return]    ${cmdlog}
+
+get_input_value_from_cmd
+    [Arguments]    ${cmdlog}    ${key}
+    @{log2}    Split String    ${cmdlog}    --${key}
+    ${log3}    Fetch From Left    @{log2}[1]    --
+    @{log4}    Split String    ${log3}
+    ${ijson}    Set Variable    @{log4}[0]
+    log    ${ijson}
+    [Return]    ${ijson}
+
+get t2x ijson
+    [Arguments]    ${exe}
+    ${cmdlog}    get_system_module_cmd    ${exe}
+    ${ijson}    get_input_value_from_cmd    ${cmdlog}    ijson
+    [Return]    ${ijson}
+
+get_division_list_from_ijson
+    [Arguments]    ${exe}
+    #get division list from raw ijson
+    ${divisionlist}    create list    0
+    log many    ${divisionlist}
+    ${log}    grep_log_string    ${exe}    divisionid
+    @{lines}=    split to lines    ${log}
+    : FOR    ${line}    IN    @{lines}
+    \    @{words}    split string    ${line}    "
+    \    log many    @{words}
+    \    log    @{words}[3]
+    \    append to list    ${divisionlist}    @{words}[3]
+    remove values from list    ${divisionlist}    0
+    log many    ${divisionlist}
+    [Return]    ${divisionlist}    # ${divisionlist} is a list
+
+change_json_value
+    [Arguments]    ${ijson}    ${newjsonpath}    ${key}    ${newvalue}
+    #run case on local machine
+    #download ijson to local
+    ${backup}    ${newjsonname}    split path    ${newjsonpath}
+    SSHLibrary.Get File    ${ijson}    ${backup}/
+    ${path1}    ${ijsonname}=    Split Path    ${ijson}
+    ${localijsonpath}=    Set Variable    ${backup}/${ijsonname}
+    #load ijson value
+    ${rawijson}    Load JSON From File    ${localijsonpath}
+    log    ${rawijson}
+    #get new json
+    ${newjson}    update value to json    ${rawijson}    ${key}    ${newvalue}
+    log    ${newjson}
+    ${newjsonstr}    convert json to string    ${newjson}
+    create file    ${newjsonpath}    ${newjsonstr}
+    Run And Return Rc    cat ${newjsonpath}
+    #upload new json
+    put file    ${newjsonpath}    ${newjsonpath}
+    execute command and check rc    cat ${newjsonpath}
+    Comment    #run cases in docker
+    Comment    ${rawijson}    Load JSON From File    ${ijson}
+    Comment    log    ${rawijson}
+    Comment    ${newjson}    update value to json    ${rawijson}    ${key}    ${newvalue}
+    Comment    log    ${newjson}
+    Comment    ${newjsonstr}    convert json to string    ${newjson}
+    Comment    create file    ${newjsonpath}    ${newjsonstr}
+    Comment    execute command and check rc    cat ${newjsonpath}
+
+grep_log_string
+    [Arguments]    ${exe}    ${string}
+    #log file \ is gz file
+    #not sure whether there are gz file
+    Comment    ${logdir}=    set variable    ${gE2eResult}/*/Process/log/${exe}/*/0
+    Comment    ${logfiles}    execute command and check rc    ls ${logdir}
+    Comment    ${logfile}    get line    ${logfiles}    0
+    Comment    ${path}    ${ext}    split extension    ${logdir}/${logfile}
+    Comment    run keyword if    '${ext}'=='gz'    execute command and check rc    gzip -d ${logdir}/*
+    Comment    ${logpath}=    run keyword if    '${ext}'=='gz'    set variable    ${path}
+    ...    ELSE    set variable    ${logdir}/${logfile}
+    Comment    ${logresult}    execute command and check rc    grep "${string}" ${logpath}
+    Comment    run keyword if    '${ext}'=='gz'    execute command and check rc    gzip ${logdir}/*
+    #log dir is tar.gz file
+    execute command and check rc    tar -xvf ${gE2eResult}/*/Process/log/cmd/${exe}*.tar.gz -C ${gE2eResult}/*/Process/log/cmd/
+    ${logdir}=    set variable    ${gE2eResult}/*/Process/log/cmd/${exe}*/*/0
+    ${logfiles}    execute command and check rc    ls ${logdir}
+    ${logfile}    get line    ${logfiles}    0
+    ${logpath}=    set variable    ${logdir}/${logfile}
+    ${logresult}    execute command and check rc    grep "${string}" ${logpath}
+    [Return]    ${logresult}
+
+test log level
+    [Arguments]    ${cmd}    ${backup}    ${loglevel}
+    ${ologpath}    Set Variable    ${backup}/RDB-41660_test_tx_params_level${loglevel}.log
+    ${terminalstdout}    Run Keyword If    4<=${loglevel}<=6    execute command and check rc    ${cmd} --level ${loglevel} --ol ${ologpath}    1
+    ...    ELSE    execute command and check rc    ${cmd} --level ${loglevel} --ol ${ologpath}
+    execute command and check rc    ls ${ologpath}*
+    ${stdout}    execute command and check rc    cat ${ologpath}*
+    Comment    Should Not Contain    ${stdout}    ${checklevel}
+    run keyword if    ${loglevel}==1    should not contain any    ${stdout}    [trace]
+    ...    ELSE IF    ${loglevel}==2    should not contain any    ${stdout}    [trace]    [debug]
+    ...    ELSE IF    ${loglevel}==3    should not contain any    ${stdout}    [trace]    [debug]
+    ...    [info]
+    ...    ELSE IF    ${loglevel}==4    should not contain any    ${stdout}    [trace]    [debug]
+    ...    [info]    [warning]
+    ...    ELSE IF    ${loglevel}==5    should not contain any    ${stdout}    [trace]    [debug]
+    ...    [info]    [warning]    [error]
+    ...    ELSE IF    ${loglevel}==6    should not contain any    ${stdout}    [trace]    [debug]
+    ...    [info]    [warning]    [error]    [critical]
+
+check_end_transaction
+    @{status}    get db data    mysql -udba -pmysql -e "select status from biz_transactions.transactions order by id;"
+    Should Be Equal As Strings    @{status}[-1]    success
+    @{dbstamps}    get db data    mysql -udba -pmysql -e "select version_id from biz_transactions.transactions order by id;"
+    log    @{dbstamps}[-1]
+    Should Not Be Equal As Integers    @{dbstamps}[-1]    0
+
+run_exe_failled_and_check_result
+    [Arguments]    ${cmd}    ${checklog}=error
+    ${stdout}=    execute command and check rc    ${cmd}    1
+    Should Contain    ${stdout}    error
+    should contain    ${stdout}    ${checklog}
+
+run_exe_successfully_and_check_result
+    [Arguments]    ${cmd}    ${checklog}=ok
+    ${stdout}    execute command and check rc    ${cmd}    0
+    Should Contain    ${stdout}    ${checklog}
+    Comment    Should Contain    ${stdout}    Create Rdb Client Manager.
+
+run_exe_successfully_and_check_transaction
+    [Arguments]    ${cmd}    ${checklog}=ok
+    ${stdout}    execute command and check rc    ${cmd}    0
+    Should Contain    ${stdout}    ${checklog}    #may need modify
+    check_end_transaction
+
+RDB-41651_run_exe_with_no_params
+    [Arguments]    ${exefile}
+    #no params
+    run_exe_failled_and_check_result    ${exefile}    Usage
+
+RDB-41655_run_exe_with_help_param
+    [Arguments]    ${exefile}
+    #'--help'
+    run_exe_successfully_and_check_result    ${exefile} --help    Usage
+
+RDB-41656_run_exe_with_version_param
+    [Arguments]    ${exefile}
+    #'--version'
+    run_exe_successfully_and_check_result    ${exefile} --version    Version
+
+RDB-41657_run_exe_with_api_param
+    [Arguments]    ${exefile}
+    #'--api'
+    run_exe_successfully_and_check_result    ${exefile} --api    api version
+
+RDB-41658_run_exe_with_api_version_help_param
+    [Arguments]    ${exefile}
+    #'--api --help --version'
+    run_exe_successfully_and_check_result    ${exefile} --api --help --version    api version
+
+RDB-41682_run_exe_with_wrong_param
+    [Arguments]    ${exefile}
+    #wrong params
+    run_exe_failled_and_check_result    ${exefile} --abc    Usage
+
+RDB-41681_test_t2x_params_ijson_without_value
+    [Arguments]    ${exefile}
+    #'--ijson' without value
+    run_exe_failled_and_check_result    ${exefile} --ijson    Usage
+
+RDB-41664_test_t2x_params_ijson_with_old_transactionid
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #'--ijson' with old transaction id
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson}    transaction is finished or not exists
+    #'--ijson' without transaction id
+    ${newjsonpath}=    Set Variable    ${backup}/RDB-41664_test_t2x_params_ijson_with_no_transactionid.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..TransactionID    ${SPACE}
+    run_exe_failled_and_check_result    ${exefile} --ijson ${newjsonpath}    save backendDB failed
+
+RDB-41659_test_t2x_params_ijson_manual
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #'--ijson --manual'
+    ${pwd}    execute command and check rc    pwd
+    Execute Command    rm ${pwd}/*.json
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual    return ok
+    ${stdout}    execute command and check rc    ls ${pwd}/*.json
+    Should Contain    ${stdout}    .json    #may need modify
+    execute command and check rc    mv ${pwd}/*.json ${backup}/RDB-41659_test_t2x_params_ijson_manual_output.json
+
+RDB-41683_test_t2x_params_ojson
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test ojson without value
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --ojson    Usage
+    #test ojson file exist
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41683_test_t2x_params_ojson_file_exist_output.json
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath}    return ok
+    execute command and check rc    cat ${ojsonpath}
+    #test ojson dir exist
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41683_test_t2x_params_ojson_dir_exist_output
+    execute command and check rc    mkdir -p ${ojsonpath}
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath}    The output json is invalid
+    #test ojson file not exist
+    ${ojsonpath}    Set Variable    /abc/a.txt
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath}    The output json is invalid
+
+RDB-41684_test_t2x_params_ol
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test output log without value
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --ol    Usage
+    #test output log file exist
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41684_test_t2x_params_ol_file_exist_output.json
+    ${ologpath}    Set Variable    ${backup}/RDB-41684_test_t2x_params_ol_file_exist_log
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath} --ol ${ologpath}    return ok
+    execute command and check rc    ls ${ojsonpath}
+    execute command and check rc    ls ${ologpath}*
+    #test output log dir exist
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41684_test_t2x_params_ol_dir_exist_output.json
+    ${ologpath}    Set Variable    ${backup}/RDB-41684_test_t2x_params_ol_dir_exist_log
+    execute command and check rc    mkdir -p ${ologpath}
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath} --ol ${ologpath}/    The log file is invalid
+    #test output log file not exist
+    ${ologpath}    Set Variable    /abc/a.txt
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath} --ol ${ologpath}/    The log file is invalid
+
+RDB-41660_test_t2x_params_level
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test level 0-6
+    test log level    ${exefile} --ijson ${ijson} --manual    ${backup}    1
+    test log level    ${exefile} --ijson ${ijson} --manual    ${backup}    2
+    test log level    ${exefile} --ijson ${ijson} --manual    ${backup}    3
+    test log level    ${exefile} --ijson ${ijson}    ${backup}    4
+    test log level    ${exefile} --ijson ${ijson}    ${backup}    5
+    test log level    ${exefile} --ijson ${ijson}    ${backup}    6
+    #test level 99
+    ${ologpath}    Set Variable    ${backup}/RDB-41660_test_t2x_params_level99_log
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --ol ${ologpath} --level 99    invalid log level
+    execute command and check rc    ls ${ologpath}*
+    #test level a
+    ${ologpath}    Set Variable    ${backup}/RDB-41660_test_t2x_params_levela_log
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --ol ${ologpath} --level a    invalid log level
+    execute command and check rc    ls ${ologpath}*
+
+RDB-41686_test_t2x_params_d
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test debugpath without value
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --d    Usage
+    #test debugdir exist
+    ${debugdir}    Set Variable    ${backup}/RDB-41686_test_t2x_params_d_dir_exist
+    execute command and check rc    mkdir ${debugdir}
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --d ${debugdir}
+    ${stdout}    execute command and check rc    ls ${debugdir}
+    should contain    ${stdout}    server
+    #test debugfile exist
+    ${debugfile}    Set Variable    ${backup}/RDB-41686_test_t2x_params_d_file_exist.txt
+    execute command and check rc    touch ${debugfile}
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --d ${debugfile}    the debug path ${debugfile} is not a existed direcotry
+
+RDB-41687_test_t2x_params_pcfg
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test pcfg without value
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --pcfg    Usage
+    #test pcfgdir exist
+    ${pcfgdir}    Set Variable    ${backup}/RDB-41687_test_t2x_params_pcfg_dir_exist
+    execute command and check rc    cp -r /opt/ygomi/roadDB/etc/config/ ${pcfgdir}
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --pcfg ${pcfgdir}
+    #test pcfgdir not exist
+    ${pcfgdir}    Set Variable    ${backup}
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --pcfg ${pcfgdir}    init server config filed! Use default para
+    #test pcfgfile not exist
+    ${pcfgfile}    Set Variable    /abc/a.txt
+    run_exe_failled_and_check_result    ${exefile} --ijson ${ijson} --manual --pcfg ${pcfgfile}    Input algo_config path does NOT exist
+
+RDB-41688_test_t2x_params_help
+    [Arguments]    ${exefile}    ${ijson}
+    #'--ijson --manual --help'
+    run_exe_successfully_and_check_result    ${exefile} --ijson ${ijson} --manual --help    Usage
+
+RDB-41690_test_t2x_params_version
+    [Arguments]    ${exefile}    ${ijson}
+    #'--ijson --manual --version'
+    run_exe_successfully_and_check_result    ${exefile} --ijson ${ijson} --manual --version    Version
+
+RDB-41691_test_t2x_params_api
+    [Arguments]    ${exefile}    ${ijson}
+    #'--ijson --manual --api'
+    run_exe_successfully_and_check_result    ${exefile} --ijson ${ijson} --manual --api    api version
+
+RDB-41688_test_t2x_multi_params
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test all params expect help, version, api
+    #prepare files
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41688_test_t2x_multi_params_output.json
+    ${ologpath}    Set Variable    ${backup}/RDB-41688_test_t2x_multi_params_log
+    ${debugdir}    Set Variable    ${backup}/RDB-41688_test_t2x_multi_params_debug
+    execute command and check rc    mkdir ${debugdir}
+    ${pcfgdir}    Set Variable    ${backup}/RDB-41688_test_t2x_multi_params_config
+    execute command and check rc    cp -r /opt/ygomi/roadDB/etc/config/ ${pcfgdir}
+    #run system module
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath} --ol ${ologpath} --level 3 --d ${debugdir} --pcfg ${pcfgdir}    warning
+    #check result
+    execute command and check rc    ls ${ojsonpath}
+    ${stdout}    execute command and check rc    cat ${ologpath}*
+    Should Not Contain    ${stdout}    [info]
+    ${stdout}    execute command and check rc    ls ${debugdir}
+    should contain    ${stdout}    server
+    #test all params
+    run_exe_successfully_and_check_result    ${exefile} --ijson ${ijson} --manual --ojson ${ojsonpath} --ol ${ologpath} --level 3 --d ${debugdir} --pcfg ${pcfgdir} --api --version --help    api version
+
+RDB-41695_test_t2x_params_ijson_endpoint
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #endpoint is empty
+    Comment    ${newjsonpath}    Set Variable    ${backup}/RDB-41695_test_t2x_params_ijson_endpoint_empty.json
+    Comment    change_json_value    ${ijson}    ${newjsonpath}    $..EndPoint    ${SPACE}
+    Comment    execute command and check rc    ${exefile} --ijson ${newjsonpath} --manual    1
+    Comment    @{endpoints}    get db data    mysql -udba -pmysql -e "select endpoint_id from biz_transactions.transactions where biz_type='backenddb';"
+    Comment    log    @{divisions}[-1]
+    Comment    should be empty    @{divisions}[-1]
+    #endpoint is number
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41695_test_t2x_params_ijson_endpoint_empty.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..EndPoint    123
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual
+    @{endpoints}    get db data    mysql -udba -pmysql -e "select endpoint_id from biz_transactions.transactions where biz_type='backenddb';"
+    log    @{endpoints}[-1]
+    Should Be Equal As Strings    @{endpoints}[-1]    123
+    #endpoint is string
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41695_test_t2x_params_ijson_endpoint_empty.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..EndPoint    124cfs>./
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual
+    @{endpoints}    get db data    mysql -udba -pmysql -e "select endpoint_id from biz_transactions.transactions where biz_type='backenddb';"
+    log    @{endpoints}[-1]
+    Should Be Equal As Strings    @{endpoints}[-1]    124cfs>./
+
+RDB-41697_test_t2x_params_ijson_domain
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test domain: http://127.0.0.1:8080/
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41697_test_t2x_params_ijson_domian_loop.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..Domain    http://127.0.0.1:8080/
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual
+    #test domain: http://10.69.140.99:28080/
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41697_test_t2x_params_ijson_domian_local.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..Domain    http://${host}:28080/
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual
+    #test domain: false domain
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41697_test_t2x_params_ijson_domian_false.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..Domain    http://127.0.0.1:9999/
+    run_exe_failled_and_check_result    ${exefile} --ijson ${newjsonpath} --manual
+
+RDB-41694_test_t20_params_ijson_backenddbstamp
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #get dbstamp
+    @{divisions}    get db data    mysql -udba -pmysql -e "select version_id from biz_transactions.transactions where biz_type='backenddb';"
+    log    @{divisions}[-1]    # get latest dbstamp
+    log    @{divisions}[0]    # get earliest dbstamp
+    #backenddbstamp is the latest one
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_latest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_latest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    @{divisions}[-1]
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should contain    ${stdout}    division_status    #t20result
+    #backenddbstamp is the earliest one
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_earliest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_earliest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    @{divisions}[0]
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should contain    ${stdout}    division_status
+    #backenddbstamp is less than the earliest one
+    ${newdbstamp}    Evaluate    @{divisions}[0]-1
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_less_than_earliest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_less_than_earliest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    ${newdbstamp}
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should not contain    ${stdout}    division_status
+    #backenddbstamp is more than the latest one
+    ${newdbstamp}    Evaluate    @{divisions}[-1]+1
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_more_than_latest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_more_than_latest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    ${newdbstamp}
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should contain    ${stdout}    division_status
+
+RDB-41717_test_t20_params_ijson_division
+    [Arguments]    ${exefile}    ${ijson}    ${backup}    ${exe}
+    ${divisionlist}    get_division_list_from_ijson    ${exe}
+    #change ijson
+    ${newjsonpath}    set variable    ${backup}/RDB-41717_test_t2x_params_ijson_division.json
+    change_json_value    ${ijson}    ${backup}/tmp.json    $..DivisionList    ${divisionlist}
+    change_json_value    ${backup}/tmp.json    ${newjsonpath}    $..SegmentList    ${SPACE}
+    #run and check result
+    ${outputjson}    set variable    ${backup}/RDB-41717_test_t2x_params_ijson_division_output.json
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    : FOR    ${line}    IN    @{divisionlist}
+    \    should contain    ${stdout}    ${line}
+
+RDB-41716_test_t20_params_ijson_LmSnippet
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #change ijson
+    ${newjsonpath}=    Set Variable    ${backup}/RDB-41716_test_t20_params_ijson_LmSnippet.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..LmSnippet    ${SPACE}
+    run_exe_failled_and_check_result    ${exefile} --ijson ${newjsonpath} --manual    1
+
+RDB-41864_test_t21_params_ijson_version
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #test empty version
+    ${newjsonpath}    set variable    ${backup}/RDB-41864_test_t21_params_ijson_version_empty.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..Version    ${SPACE}
+    run_exe_failled_and_check_result    ${exefile} --ijson ${newjsonpath} --manual    invalid version
+    #test version is number
+    ${newjsonpath}    set variable    ${backup}/RDB-41864_test_t21_params_ijson_version_number.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..Version    123456
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual    "refversion": "123456"
+    #test version is string
+    ${newjsonpath}    set variable    ${backup}/RDB-41864_test_t21_params_ijson_version_string.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..Version    123acd,.>
+    run_exe_failled_and_check_result    ${exefile} --ijson ${newjsonpath} --manual    invalid version
+
+RDB-43004_test_t21_params_ijson_backenddbstamp
+    [Arguments]    ${exefile}    ${ijson}    ${backup}
+    #get dbstamp
+    @{divisions}    get db data    mysql -udba -pmysql -e "select version_id from biz_transactions.transactions where biz_type='backenddb';"
+    log    @{divisions}[-1]    # get latest dbstamp
+    log    @{divisions}[0]    # get earliest dbstamp
+    #backenddbstamp is the latest one
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_latest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_latest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    @{divisions}[-1]
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should contain    ${stdout}    reference_version    #t20result
+    #backenddbstamp is the earliest one
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_earliest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_earliest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    @{divisions}[0]
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should not contain    ${stdout}    reference_version
+    #backenddbstamp is less than the earliest one
+    ${newdbstamp}    Evaluate    @{divisions}[0]-1
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_less_than_earliest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_less_than_earliest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    ${newdbstamp}
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should not contain    ${stdout}    reference_version
+    #backenddbstamp is more than the latest one
+    ${newdbstamp}    Evaluate    @{divisions}[-1]+1
+    ${newjsonpath}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_more_than_latest.json
+    ${outputjson}    Set Variable    ${backup}/RDB-41694_test_t2x_params_ijson_backenddbstamp_more_than_latest_output.json
+    change_json_value    ${ijson}    ${newjsonpath}    $..DBStamp    ${newdbstamp}
+    run_exe_successfully_and_check_transaction    ${exefile} --ijson ${newjsonpath} --manual --ojson ${outputjson}
+    ${stdout}    execute command and check rc    cat ${outputjson}
+    should contain    ${stdout}    reference_version
+
+RDB-41703_test_t1_params_lm_icfg
+    [Arguments]    ${exefile}    ${ilmsnippet}    ${icfg}    ${backup}
+    #test ilmsnippet without value
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet    Usage
+    #test ilmsnippet without icfg
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet}    Usage
+    #test icfg without value
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg    Usage
+    #test icfg with correct value
+    run_exe_successfully_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg}    FINISH SNIPPET ANALYZER
+    ${pwd}    execute command and check rc    pwd
+    execute command and check rc    mv ${pwd}/affectedSegments.json ${backup}/RDB-41703_test_t1_params_lm_icfg_affectedSegments.json
+    execute command and check rc    mv ${pwd}/slamTrajectoryOri.txt ${backup}/RDB-41703_test_t1_params_lm_icfg_slamTrajectoryOri.txt
+    ${passedsegment}    get_json_value    ${backup}/RDB-41703_test_t1_params_lm_icfg_affectedSegments.json    ${backup}    $..PassedSegmentList
+    Should Not Be Empty    ${passedsegment}[0]
+
+RDB-41709_test_t1_params_of
+    [Arguments]    ${exefile}    ${ilmsnippet}    ${icfg}    ${backup}
+    #test of without value
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --of    Usage
+    #test of file exist
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41709_test_t1_params_of_file_exist.json
+    run_exe_successfully_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --of ${ojsonpath}    FINISH SNIPPET ANALYZER
+    execute command and check rc    cat ${ojsonpath}
+    #test of dir exist
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41709_test_t1_params_of_dir_exist.json
+    execute command and check rc    mkdir -p ${ojsonpath}
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --of ${ojsonpath}    The output json is invalid
+    #test of file not exist
+    ${ojsonpath}    Set Variable    /abc/a.txt
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --of ${ojsonpath}    The output json is invalid
+
+RDB-41710_test_t1_params_ogps
+    [Arguments]    ${exefile}    ${ilmsnippet}    ${icfg}    ${backup}
+    #test ogps without value
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ogps    Usage
+    #test ogps file exist
+    ${ogpspath}    Set Variable    ${backup}/RDB-41710_test_t1_params_ogps_file_exist.txt
+    run_exe_successfully_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ogps ${ogpspath}    FINISH SNIPPET ANALYZER
+    execute command and check rc    cat ${ogpspath}
+    #test of dir exist
+    ${ogpspath}    Set Variable    ${backup}/RDB-41710_test_t1_params_ogps_dir_exist.txt
+    execute command and check rc    mkdir -p ${ogpspath}
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ogps ${ogpspath}    The output gpsFile is invalid
+    #test of file not exist
+    ${ogpspath}    Set Variable    /abc/a.txt
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ogps ${ogpspath}    The output gpsFile is invalid
+
+RDB-41711_test_t1_params_ol
+    [Arguments]    ${exefile}    ${ilmsnippet}    ${icfg}    ${backup}
+    #test output log without value
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ol    Usage
+    #test output log file exist
+    ${ologpath}    Set Variable    ${backup}/RDB-41711_test_t1_params_ol_file_exist_log
+    run_exe_successfully_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ol ${ologpath}    FINISH SNIPPET ANALYZER
+    execute command and check rc    ls ${ologpath}*
+    #test output log dir exist
+    ${ologpath}    Set Variable    ${backup}/RDB-41711_test_t1_params_ol_dir_exist_log
+    execute command and check rc    mkdir -p ${ologpath}
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ol ${ologpath}/    The log file is invalid
+    #test output log file not exist
+    ${ologpath}    Set Variable    /abc/a.txt
+    run_exe_failled_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --ol ${ologpath}    The log file is invalid
+
+RDB-41660_test_t1_params_level
+    [Arguments]    ${exefile}    ${ilmsnippet}    ${icfg}    ${backup}
+    #test level 0-6
+    test log level    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg}    ${backup}    1
+    test log level    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg}    ${backup}    2
+    test log level    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg}    ${backup}    3
+    test log level    ${exefile} --ilmsnippet ${ilmsnippet} --icfg /abc    ${backup}    4
+    test log level    ${exefile} --ilmsnippet ${ilmsnippet} --icfg /abc    ${backup}    5
+    test log level    ${exefile} --ilmsnippet ${ilmsnippet} --icfg /abc    ${backup}    6
+    #test level 99
+    ${ologpath}    Set Variable    ${backup}/RDB-41660_test_tx_params_level99_log
+    run_exe_successfully_and_check_transaction    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --level 99 --ol ${ologpath}    invalid log level
+    execute command and check rc    ls ${ologpath}*
+    #test level a
+    ${ologpath}    Set Variable    ${backup}/RDB-41660_test_tx_params_levela_log
+    run_exe_successfully_and_check_transaction    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --level a --ol ${ologpath}    invalid log level
+    execute command and check rc    ls ${ologpath}*
+
+RDB-41712_test_t1_multi_params
+    [Arguments]    ${exefile}    ${ilmsnippet}    ${icfg}    ${backup}
+    #test all params expect help, version, api
+    #run system module
+    ${ojsonpath}    Set Variable    ${backup}/RDB-41712_test_t1_multi_params_output.json
+    ${ogpspath}    Set Variable    ${backup}/RDB-41712_test_t1_multi_params_gps.txt
+    ${ologpath}    Set Variable    ${backup}/RDB-41712_test_t1_multi_params_log
+    run_exe_successfully_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --of ${ojsonpath} --ogps ${ogpspath} --ol ${ologpath} --level 2    FINISH SNIPPET ANALYZER
+    #check result
+    execute command and check rc    ls ${ojsonpath}
+    execute command and check rc    cat ${ogpspath}
+    ${stdout}    execute command and check rc    cat ${ologpath}*
+    should not contain any    ${stdout}    [trace]    [debug]
+    #test all params
+    run_exe_successfully_and_check_result    ${exefile} --ilmsnippet ${ilmsnippet} --icfg ${icfg} --of ${ojsonpath} --ogps ${ogpspath} --ol ${ologpath} --level 2 --api --version --help    api version
+
+get_json_value
+    [Arguments]    ${ijson}    ${localbackuppath}    ${key}
+    Comment    #run case on local machine
+    Comment    #download ijson to local
+    Comment    ${path1}    ${ijsonname}=    Split Path    ${ijson}
+    Comment    ${localijsonpath}=    Set Variable    ${localbackuppath}/${ijsonname}
+    Comment    SSHLibrary.Get File    ${ijson}    ${localbackuppath}/
+    Comment    #get key value
+    Comment    ${json}    Load JSON From File    ${localijsonpath}
+    Comment    log    ${json}
+    Comment    ${value}    Get Value From Json    ${json}    ${key}
+    Comment    log    ${json}
+    Comment    log    ${value}
+    #run cases in docker
+    ${json}    Load JSON From File    ${ijson}
+    ${value}    Get Value From Json    ${json}    ${key}
+    log    ${json}
+    log    ${value}
+    [Return]    ${value}

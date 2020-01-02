@@ -1,0 +1,42 @@
+*** Settings ***
+Resource          ../RFresource/System_lib_res_var.txt
+
+*** Variables ***
+${sExe}           refOptimizer    #t21
+${sExeFile}       /opt/ygomi/roadDB/bin/${sExe}
+${sBackupPath}    ${gBackupPath}/${sExe}
+
+*** Test Cases ***
+refOptimizer_common_cases
+    [Tags]    shiyu    basic
+    [Setup]    login server
+    RDB-41651_run_exe_with_no_params    ${sExeFile}
+    RDB-41682_run_exe_with_wrong_param    ${sExeFile}
+    RDB-41655_run_exe_with_help_param    ${sExeFile}
+    RDB-41656_run_exe_with_version_param    ${sExeFile}
+    RDB-41657_run_exe_with_api_param    ${sExeFile}
+    RDB-41658_run_exe_with_api_version_help_param    ${sExeFile}
+
+refOptimizer_t2x_cases
+    [Tags]    shiyu
+    [Setup]    login server
+    prepare_backup_path    ${sBackupPath}
+    ${ijson}    get t2x ijson    ${sExe}
+    #run t2x common cases
+    RDB-41681_test_t2x_params_ijson_without_value    ${sExeFile}
+    RDB-41664_test_t2x_params_ijson_with_old_transactionid    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41659_test_t2x_params_ijson_manual    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41683_test_t2x_params_ojson    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41684_test_t2x_params_ol    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41660_test_t2x_params_level    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41686_test_t2x_params_d    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41687_test_t2x_params_pcfg    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41688_test_t2x_params_help    ${sExeFile}    ${ijson}
+    RDB-41690_test_t2x_params_version    ${sExeFile}    ${ijson}
+    RDB-41691_test_t2x_params_api    ${sExeFile}    ${ijson}
+    RDB-41688_test_t2x_multi_params    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41695_test_t2x_params_ijson_endpoint    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-41697_test_t2x_params_ijson_domain    ${sExeFile}    ${ijson}    ${sBackupPath}
+    #run t21 special cases
+    RDB-41864_test_t21_params_ijson_version    ${sExeFile}    ${ijson}    ${sBackupPath}
+    RDB-43004_test_t21_params_ijson_backenddbstamp    ${sExeFile}    ${ijson}    ${sBackupPath}

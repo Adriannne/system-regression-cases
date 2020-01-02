@@ -1,0 +1,66 @@
+*** Settings ***
+Resource          ../RFresource/System_lib_res_var.txt
+
+*** Variables ***
+${sExe}           DB2KML
+${sExefile}       /opt/ygomi/roadDB/tool/DB2KML
+${sBackupPath}    ${gBackupPath}/${sExe}
+
+*** Test Cases ***
+refGenerator_common_cases
+    [Tags]    shiyu    basic
+    [Setup]    login server
+    RDB-41651_run_exe_with_no_params    ${sExeFile}
+    RDB-41682_run_exe_with_wrong_param    ${sExeFile}
+    RDB-41655_run_exe_with_help_param    ${sExeFile}
+
+DB2KML_RESTBE_cases
+    [Setup]    login server
+    ${exefile}    set variable    ${sExefile} RESTBE
+    Comment    RDB-41655_run_exe_with_help_param    ${exefile}
+    Comment    RDB-41656_run_exe_with_version_param    ${exefile}
+    ${localdomain}    set variable    http://127.0.0.1:8080/
+    ${domain}    set variable    http://10.69.140.99:28080/
+    #test dbstamp
+    run_exe_successfully_and_check_result    /opt/ygomi/roadDB/tool/DB2KML RESTBE --domain http://127.0.0.1:8080/ --dbStamp 1567145181156647 --oPath /data/RDB-44227/test2/test_DB2kml/import_skeleton/    end run DB2KML
+    ${kml}    execute command and check rc    tree /data/RDB-44227/test2/test_DB2kml/import_skeleton/
+    should contain    ${kml}    .kml
+    #test typeorg
+    test_db2kml_typeorg    ${exefile}    0    /data/RDB-44227/test2/test_DB2kml
+    test_db2kml_typeorg    ${exefile}    1    /data/RDB-44227/test2/test_DB2kml
+    test_db2kml_typeorg    ${exefile}    2    /data/RDB-44227/test2/test_DB2kml
+    test_db2kml_typeorg    ${exefile}    3    /data/RDB-44227/test2/test_DB2kml
+    test_db2kml_typeorg    ${exefile}    4    /data/RDB-44227/test2/test_DB2kml
+    test_db2kml_typeorg    ${exefile}    5    /data/RDB-44227/test2/test_DB2kml
+
+DB2KML_RESTLG_cases
+    [Setup]    login server
+    ${exefile}    set variable    ${sExefile} RESTLG
+    Comment    RDB-41655_run_exe_with_help_param    ${Exefile}
+    Comment    RDB-41656_run_exe_with_version_param    ${Exefile}
+    ${kmlpath}    set variable    /data/RDB-44227/test2/test_DB2kml/logicdb
+    test_db2kml_typeorg    ${exefile}    0    ${kmlpath}
+    test_db2kml_typeorg    ${exefile}    1    ${kmlpath}
+    test_db2kml_typeorg    ${exefile}    2    ${kmlpath}
+    test_db2kml_typeorg    ${exefile}    3    ${kmlpath}
+
+DB2KML_FILVHL_cases
+    [Setup]    login server
+    ${Exefile}    ${sExeFile} FILVHL
+    RDB-41655_run_exe_with_help_param    ${Exefile}
+    RDB-41656_run_exe_with_version_param    ${Exefile}
+
+DB2KML_FILLG_cases
+    [Setup]    login server
+    ${Exefile}    ${sExeFile} FILLG
+    RDB-41655_run_exe_with_help_param    ${Exefile}
+    RDB-41656_run_exe_with_version_param    ${Exefile}
+
+*** Keywords ***
+test_db2kml_typeorg
+    [Arguments]    ${exe}    ${type}    ${totalpath}
+    ${kmlpath}    set variable    ${totalpath}/${type}
+    execute command    mkdir ${kmlpath}
+    run_exe_successfully_and_check_result    ${exe} --domain http://10.69.140.99:28080/ --typeOrg ${type} --oPath ${kmlpath}    end run DB2KML
+    ${kml}    execute command and check rc    tree ${kmlpath}
+    should contain    ${kml}    .kml

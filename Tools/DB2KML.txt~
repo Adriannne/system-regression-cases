@@ -1,0 +1,16 @@
+*** Settings ***
+Resource          ../RFresource/System_lib_res_var.txt
+
+*** Variables ***
+${sExe}           DB2KML
+${sExefile}       /opt/ygomi/roadDB/tool/DB2KML
+${sBackupPath}    ${gBackupPath}/${sExe}
+
+*** Test Cases ***
+refGenerator_common_cases
+    [Tags]    shiyu    basic
+    [Setup]    login server
+    RDB-41651_run_exe_with_no_params    ${sExeFile}
+    RDB-41682_run_exe_with_wrong_param    ${sExeFile}
+    RDB-41655_run_exe_with_help_param    ${sExeFile}
+
