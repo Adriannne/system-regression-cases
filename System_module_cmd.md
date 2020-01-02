@@ -1,0 +1,13 @@
+System module cmd:
+
+```
+/opt/ygomi/roadDB/bin/snippetAnalyzer  --ilmsnippet  /opt/ygomi/roadDB/work_path/WorkflowManager/SnippetAnalyzer/unzip/2a89e3585f15bd7d8ce259a95e09ab11_20191230083932_large_iphone_usi75_2019-02-22_T_16-03-57.308_GMT_01.meta_slam.out00_object.out  --icfg  /usr/local/ygomi/roadDB/algo_res/SegmentConfig.json  --of  /opt/ygomi/roadDB/work_path/WorkflowManager/SnippetAnalyzer/json/2a89e3585f15bd7d8ce259a95e09ab11_20191230083932_large_iphone_usi75_2019-02-22_T_16-03-57.308_GMT_01.meta_slam.out00_object.out.json  --ogps  /opt/ygomi/roadDB/work_path/WorkflowManager/SnippetAnalyzer/traj/2a89e3585f15bd7d8ce259a95e09ab11_20191230083932_large_iphone_usi75_2019-02-22_T_16-03-57.308_GMT_01.meta_slam.out00_object.out.txt
+
+/opt/ygomi/roadDB/bin/refGenerator  --ijson  /opt/ygomi/roadDB/work_path/WorkflowManager/RefGenerator/refGeneratorInput/1577695464812583-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU0NzA1ODY5MDAx.json  --ojson  /opt/ygomi/roadDB/work_path/WorkflowManager/RefGenerator/refGeneratorResult/result-1577695464812583-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU0NzA1ODY5MDAx.json  --d  /opt/ygomi/roadDB/work_path/WorkflowManager/RefGenerator/refGeneratorDebug  --pcfg  /opt/ygomi/roadDB/etc/config
+
+/opt/ygomi/roadDB/bin/refOptimizer  --ijson  /opt/ygomi/roadDB/work_path/WorkflowManager/RefOptimizer/refOptimizerInput/1577695473138279-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU0ODU0MjE3MDAx.json  --d  /opt/ygomi/roadDB/work_path/WorkflowManager/RefOptimizer/refOptimizerDebug  --ojson  /opt/ygomi/roadDB/work_path/WorkflowManager/RefOptimizer/refOptimizerResult/result-1577695473138279-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU0ODU0MjE3MDAx.json  --pcfg  /opt/ygomi/roadDB/etc/config
+
+/opt/ygomi/roadDB/bin/refRegistration  --ijson  /opt/ygomi/roadDB/work_path/WorkflowManager/RefRegistration/refRegistrationJson/1577695527275490-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU1MzgwNjIxMDAx.json  --d  /opt/ygomi/roadDB/work_path/WorkflowManager/RefRegistration/refRegistrationDebug  --ojson  /opt/ygomi/roadDB/work_path/WorkflowManager/RefRegistration/refRegistrationResult/result-1577695527275490-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU1MzgwNjIxMDAx.json  --pcfg  /opt/ygomi/roadDB/etc/config
+
+/opt/ygomi/roadDB/bin/logicInfoExtractor  --ijson  /opt/ygomi/roadDB/work_path/WorkflowManager/LogicInfoExtractor/logicInfoExtractorJson/0-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU1NTg2NjMwMDAx.json  --d  /opt/ygomi/roadDB/work_path/WorkflowManager/LogicInfoExtractor/logicInfoExtractorDebug  --iconfig  /usr/local/ygomi/roadDB/algo_res/server/config/LmsConfig.json  --ojson  /opt/ygomi/roadDB/work_path/WorkflowManager/LogicInfoExtractor/logicInfoExtractorResult/result-0-aHR0cDovLzEyNy4wLjAuMTo4MDgwLDE1Nzc2OTU1NTg2NjMwMDAx.json
+```
